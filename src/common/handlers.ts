@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
-import hbs from 'nodemailer-express-handlebars';
+import nodeMailerExpressHandlebars from 'nodemailer-express-handlebars';
+const hbs = nodeMailerExpressHandlebars;
 import path from "path";
 import { config } from ".";
 
