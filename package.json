@@ -1,4 +1,5 @@
 {
+  "type": "module",
   "name": "cirec-backend-node",
   "version": "1.0.0",
   "description": "cirec backend",
@@ -6,8 +7,7 @@
   "scripts": {
     "clean": "rimraf ./dist tsconfig.tsbuildinfo",
     "start": "node -r tsconfig-paths/register -r module-alias/register ./dist/index.js",
-"dev": "concurrently \"tsc --watch\" \"nodemon -q -r tsconfig-paths/register -r module-alias/register ./dist/index.js\"",
-
+    "dev": "concurrently \"tsc --watch\" \"nodemon -q -r tsconfig-paths/register -r module-alias/register ./dist/index.js\"",
     "start:production": "npm run migrate up & node -r module-alias/register ./dist/index.js",
     "build:clean": "rimraf dist && tsc",
     "build": "npm run clean & npm run compile",
@@ -37,7 +37,7 @@
     "mssql": "^11.0.1",
     "node-cache": "^5.1.2",
     "nodemailer": "^6.9.16",
-    "nodemailer-express-handlebars": "^7.0.0",
+    "nodemailer-express-handlebars": "^4.0.0",
     "paypal-rest-sdk": "^1.8.1",
     "qs": "^6.13.1",
     "tsconfig-paths": "^4.2.0",
