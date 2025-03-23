@@ -1,0 +1,38 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "src/index.ts",
+      "use": "@vercel/node",
+      "config": {
+        "maxDuration": 10,
+        "memory": 1024
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/documentation/(.*)",
+      "dest": "src/index.ts"
+    },
+    {
+      "src": "/swagger.json",
+      "dest": "src/index.ts"
+    },
+    {
+      "src": "/swaggerui/(.*)",
+      "dest": "src/index.ts"
+    },
+    {
+      "src": "/crpdfnet/(.*)",
+      "dest": "src/utils/crpdfnet/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "src/index.ts"
+    }
+  ],
+  "env": {
+    "NODE_ENV": "production"
+  }
+}

@@ -1,0 +1,1 @@
+export * from "./get-article-by-id";

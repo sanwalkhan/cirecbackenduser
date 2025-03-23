@@ -1,0 +1,46 @@
+<html
+  xmlns="http://www.w3.org/1999/xhtml"
+  style="font-family: 'Open sans'; box-sizing: border-box; font-size: 14px; margin: 0;"
+>
+  <head>
+    <meta name="viewport" content="width=device-width" />
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <style type="text/css">
+      body { background-color: #f4f4f7; font-size: 14px; line-height: 1.6; margin: 0; padding: 0; width: 100%
+      !important; height: 100% !important; font-family: 'Open sans', Arial, sans-serif; } .container { max-width: 600px;
+      margin: 30px auto; padding: 20px; background-color: #ffffff; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,
+      0, 0, 0.1); } .header { background-color: #3498db; color: white; padding: 15px; text-align: center;
+      border-top-left-radius: 10px; border-top-right-radius: 10px; } .contact-details { background-color: #f0f0f0;
+      padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #3498db; } .message-section {
+      background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #2ecc71; } h2
+      { color: #333; margin-bottom: 15px; } .detail-label { color: #555; font-weight: bold; margin-right: 10px; }
+      .detail-value { color: #333; } .footer { margin-top: 20px; text-align: center; color: #777; font-size: 12px;
+      border-top: 1px solid #e0e0e0; padding-top: 15px; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h2>New Contact Form Submission</h2>
+      </div>
+
+      <div class="contact-details">
+        <p><span class="detail-label">Name:</span> <span class="detail-value">{{firstName}} {{lastName}}</span></p>
+        <p><span class="detail-label">Country:</span> <span class="detail-value">{{country}}</span></p>
+        <p><span class="detail-label">Phone:</span> <span class="detail-value">{{phone}}</span></p>
+        <p><span class="detail-label">Email:</span> <span class="detail-value">{{email}}</span></p>
+        <p><span class="detail-label">Subject:</span> <span class="detail-value">{{subject}}</span></p>
+      </div>
+
+      <div class="message-section">
+        <p><span class="detail-label">Message:</span></p>
+        <p class="detail-value">{{message}}</p>
+      </div>
+
+      <div class="footer">
+        © Cirec Contact Form Submission |
+        {{currentYear}}
+      </div>
+    </div>
+  </body>
+</html>

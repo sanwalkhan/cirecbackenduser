@@ -1,0 +1,79 @@
+<html xmlns="http://www.w3.org/1999/xhtml" style="font-family: "Open sans"; box-sizing: border-box; font-size: 14px; margin: 0;">
+  <head>
+    <meta name="viewport" content="width=device-width" />
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <link href="https://fonts.googleapis.com/css?family=Open+Sans:400,600,300" rel="stylesheet" type="text/css">
+    <style type="text/css">
+      body {
+      background-color: #f4f4f7;
+      font-size: 14px;
+      line-height: 1.6;
+      margin: 0;
+      padding: 0;
+      width: 100% !important;
+      height: 100% !important;
+      font-family: "Open sans" !important;
+    }
+    .container {
+      max-width: 600px;
+      margin: 30px auto;
+      padding: 20px;
+      background-color: #ffffff;
+      border-radius: 10px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+      font-family: "Google Sans" !important;
+    }
+    h2 {
+      color: #333;
+    }
+    p {
+      color: #555;
+      margin: 10px 0;
+    }
+    .otp-code {
+      font-size: 16px;
+      font-weight: bold;
+      text-align: center;
+      color: black;
+      padding: 15px 20px;
+      border-radius: 8px;
+      margin: 20px 0;
+    }
+    .code {
+      color: black;
+    }
+    .footer {
+      margin-top: 20px;
+      text-align: center;
+      color: #777;
+      font-size: 14px;
+    }
+    .footer a {
+      color: #3498db;
+      text-decoration: none;
+    }
+    .footer a:hover {
+      text-decoration: underline;
+    }
+
+    </style>
+  </head>
+  <body style="margin: 0; padding: 0; box-sizing: border-box; background-color: #f4f4f7; font-family: "Open sans";">
+    <div class="container">
+      <h2>Email Verification Code</h2>
+      <p>Hi {{user}},</p>
+      <p>Thanks for joining Cirec! To complete your account setup, please verify your email address.</p>
+      <p class="otp-code">Your verification code is : BP - {{code}}</p>
+      <p>Please note: Only enter the six-digit code.</p>
+      <p>Once you've verified your email address, you'll have full access to all the features of Cirec.</p>
+      <p>We're excited to have you on board!</p>
+      <p>Sincerely,</p>
+      <p>The Cirec Team</p>
+      <div class="footer">
+        © cirec |
+        <a href="https://cirec.net/" target="_blank">Visit Our Website</a>
+      </div>
+    </div>
+  </body>
+</html>
+{{!-- @todo update template --}}
