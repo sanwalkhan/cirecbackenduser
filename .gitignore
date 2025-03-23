@@ -112,4 +112,3 @@ yarn.lock
 production.docker-compose.
 
 images/*
-.vercel
