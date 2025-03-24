@@ -11,7 +11,7 @@ export const searchDatabaseOptions: RouteOptions = {
     query: Joi.object({
       key: Joi.string().required(),
       page: Joi.number().optional().default(1),
-      pageSize: Joi.number().optional().default(5), // Added pageSize as a query parameter
+      pageSize: Joi.number().optional().default(20),
       cb1: Joi.boolean().optional().default(false),
     }),
   },
@@ -29,6 +29,7 @@ export const searchDatabaseOptions: RouteOptions = {
           ar_id: Joi.number(),
           ar_title: Joi.string(),
           ar_datetime: Joi.date(),
+          ar_content: Joi.string().optional(),
           rank: Joi.number().optional(),
         })
       ),
@@ -41,9 +42,24 @@ export const searchDatabaseOptions: RouteOptions = {
     }),
   },
   handler: async (request, h) => {
-    const { key: findWord, page = 1, pageSize = 5, cb1 = false } = request.query;
+    const { key: findWord, page = 1, pageSize = 20, cb1 = false } = request.query;
 
     try {
+      // Validate input
+      if (!findWord || findWord.trim() === '') {
+        return h.response({
+          success: false,
+          message: "Search term is required",
+          articles: [],
+          totalArticles: 0,
+          pagination: {
+            currentPage: 1,
+            totalPages: 0,
+            pageSize: 20
+          }
+        }).code(400);
+      }
+
       const sanitizedWord = findWord.replace(/[&<>"']/g, "");
       const offset = (Number(page) - 1) * pageSize;
 
@@ -54,6 +70,7 @@ export const searchDatabaseOptions: RouteOptions = {
             ar_id, 
             ar_title, 
             ar_datetime,
+            ar_content, 
             ${cb1 ? 'KEY_TBL.RANK,' : ''}
             ROW_NUMBER() OVER (ORDER BY ${cb1 ? 'KEY_TBL.RANK DESC' : 'ar_datetime DESC'}) AS RowNum,
             COUNT(*) OVER() AS TotalCount
@@ -63,7 +80,7 @@ export const searchDatabaseOptions: RouteOptions = {
             ON FT_TBL.ar_id = KEY_TBL.[KEY]
           ` : 'WHERE ar_title LIKE @keyword OR ar_content LIKE @keyword'}
         )
-        SELECT ar_id, ar_title, ar_datetime${cb1 ? ', RANK' : ''}, TotalCount
+        SELECT ar_id, ar_title, ar_datetime, ar_content, ${cb1 ? 'RANK,' : ''} TotalCount
         FROM RankedArticles
         WHERE RowNum BETWEEN @offset + 1 AND @offset + @pageSize
       `;
@@ -110,28 +127,42 @@ export const searchDatabaseOptions: RouteOptions = {
         await executeQuery(insertQuery, { keyword: sanitizedWord });
       }
 
+      // Prepare response
+      const responseData = {
+        success: totalArticles > 0,
+        totalArticles,
+        articles: articlesResult.recordset.map(({ TotalCount, ...article }) => article),
+        pagination: {
+          currentPage: Number(page),
+          totalPages: Math.ceil(totalArticles / pageSize),
+          pageSize: Number(pageSize),
+        },
+        suggestedKeyword,
+      };
+
+      // Always return a response
       return h
-        .response({
-          success: totalArticles > 0,
-          totalArticles,
-          articles: articlesResult.recordset.map(({ TotalCount, ...article }) => article), // Exclude TotalCount from the response
-          pagination: {
-            currentPage: Number(page),
-            totalPages: Math.ceil(totalArticles / pageSize),
-            pageSize: Number(pageSize),
-          },
-          suggestedKeyword,
-        })
+        .response(responseData)
         .code(totalArticles > 0 ? 200 : 404);
+
     } catch (error) {
+      // Ensure error logging and response
       logger.error("search-route", `Search process failed: ${error}`);
       return h
         .response({
           success: false,
           message: "Search process failed",
+          articles: [],
+          totalArticles: 0,
+          pagination: {
+            currentPage: 1,
+            totalPages: 0,
+            pageSize: 20
+          }
         })
         .code(500);
     }
   },
 };
 
+export default searchDatabaseOptions;
