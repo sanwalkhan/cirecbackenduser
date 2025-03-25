@@ -6,13 +6,13 @@ import { logger } from "../../../common/logger";
 export const searchDatabaseOptions: RouteOptions = {
   description: "Search Articles Database",
   tags: ["api", "Search"],
-  notes: "Handles article search with full-text and keyword matching, optimized for speed",
+  notes: "Handles article search with full-text and keyword matching",
   validate: {
     query: Joi.object({
       key: Joi.string().required(),
       page: Joi.number().optional().default(1),
       pageSize: Joi.number().optional().default(20),
-      cb1: Joi.boolean().optional().default(true), // Default to full-text search
+      cb1: Joi.boolean().optional().default(false),
     }),
   },
   plugins: {
@@ -42,7 +42,7 @@ export const searchDatabaseOptions: RouteOptions = {
     }),
   },
   handler: async (request, h) => {
-    const { key: findWord, page = 1, pageSize = 20, cb1 = true } = request.query;
+    const { key: findWord, page = 1, pageSize = 20, cb1 = false } = request.query;
 
     try {
       // Validate input
@@ -63,14 +63,14 @@ export const searchDatabaseOptions: RouteOptions = {
       const sanitizedWord = findWord.replace(/[&<>"']/g, "");
       const offset = (Number(page) - 1) * pageSize;
 
-      // Optimized query with reduced data retrieval
+      // Unified query with total count and pagination
       const searchQuery = `
         WITH RankedArticles AS (
           SELECT 
             ar_id, 
             ar_title, 
             ar_datetime,
-            LEFT(ar_content, 200) AS ar_content, -- Limit content length
+            ar_content, 
             ${cb1 ? 'KEY_TBL.RANK,' : ''}
             ROW_NUMBER() OVER (ORDER BY ${cb1 ? 'KEY_TBL.RANK DESC' : 'ar_datetime DESC'}) AS RowNum,
             COUNT(*) OVER() AS TotalCount
@@ -83,7 +83,6 @@ export const searchDatabaseOptions: RouteOptions = {
         SELECT ar_id, ar_title, ar_datetime, ar_content, ${cb1 ? 'RANK,' : ''} TotalCount
         FROM RankedArticles
         WHERE RowNum BETWEEN @offset + 1 AND @offset + @pageSize
-        OPTION (RECOMPILE, FAST 20) -- Query hint for faster execution
       `;
 
       const articlesResult = await executeQuery(searchQuery, {
@@ -94,7 +93,7 @@ export const searchDatabaseOptions: RouteOptions = {
 
       const totalArticles = articlesResult.recordset[0]?.TotalCount || 0;
 
-      // Simplified suggested keyword logic
+      // Check for suggested keywords
       let suggestedKeyword = null;
       if (totalArticles === 0) {
         const suggestedQuery = `
@@ -108,7 +107,24 @@ export const searchDatabaseOptions: RouteOptions = {
           keyword: sanitizedWord,
         });
 
-        suggestedKeyword = suggestedResult.recordset[0]?.sk_suggestedkey || null;
+        if (suggestedResult.recordset.length > 0) {
+          suggestedKeyword = suggestedResult.recordset[0].sk_suggestedkey;
+        }
+
+        // Insert the keyword for tracking if not exists
+        const insertQuery = `
+          IF NOT EXISTS (
+            SELECT 1 FROM and_cirec.cr_searchkeyword 
+            WHERE sk_userkey = @keyword
+          )
+          BEGIN
+            INSERT INTO and_cirec.cr_searchkeyword 
+            (sk_id, sk_userkey, sk_suggestedkey, sk_display) 
+            VALUES 
+            ((SELECT ISNULL(MAX(sk_id), 0) + 1 FROM and_cirec.cr_searchkeyword), @keyword, '', 'False')
+          END
+        `;
+        await executeQuery(insertQuery, { keyword: sanitizedWord });
       }
 
       // Prepare response
@@ -130,7 +146,7 @@ export const searchDatabaseOptions: RouteOptions = {
         .code(totalArticles > 0 ? 200 : 404);
 
     } catch (error) {
-      // Simplified error handling
+      // Ensure error logging and response
       logger.error("search-route", `Search process failed: ${error}`);
       return h
         .response({
