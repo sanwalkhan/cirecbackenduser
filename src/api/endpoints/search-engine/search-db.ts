@@ -11,7 +11,7 @@ export const searchDatabaseOptions: RouteOptions = {
     query: Joi.object({
       key: Joi.string().required(),
       page: Joi.number().optional().default(1),
-      pageSize: Joi.number().optional().default(20),
+      pageSize: Joi.number().optional().default(10),
       cb1: Joi.boolean().optional().default(false),
     }),
   },
@@ -42,7 +42,7 @@ export const searchDatabaseOptions: RouteOptions = {
     }),
   },
   handler: async (request, h) => {
-    const { key: findWord, page = 1, pageSize = 20, cb1 = false } = request.query;
+    const { key: findWord, page = 1, pageSize =10, cb1 = false } = request.query;
 
     try {
       // Validate input
@@ -55,7 +55,7 @@ export const searchDatabaseOptions: RouteOptions = {
           pagination: {
             currentPage: 1,
             totalPages: 0,
-            pageSize: 20
+            pageSize: 10
           }
         }).code(400);
       }
@@ -157,7 +157,7 @@ export const searchDatabaseOptions: RouteOptions = {
           pagination: {
             currentPage: 1,
             totalPages: 0,
-            pageSize: 20
+            pageSize: 10
           }
         })
         .code(500);
