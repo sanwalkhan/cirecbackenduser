@@ -2,6 +2,13 @@ import { RouteOptions } from "@hapi/hapi";
 import Joi from "joi";
 import { executeQuery } from "../../../common/db";
 import { logger } from "../../../common/logger";
+import NodeCache from 'node-cache';
+
+// Initialize cache
+const searchResultsCache = new NodeCache({ 
+  stdTTL: 300, // 5 minutes cache
+  checkperiod: 320 
+});
 
 export const searchDatabaseOptions: RouteOptions = {
   description: "Search Articles Database",
@@ -60,10 +67,19 @@ export const searchDatabaseOptions: RouteOptions = {
         }).code(400);
       }
 
+      // Create a unique cache key
+      const cacheKey = `search:${findWord}:${page}:${pageSize}:${cb1}`;
+      
+      // Check cache first
+      const cachedResult = searchResultsCache.get(cacheKey);
+      if (cachedResult) {
+        return h.response(cachedResult).code(200);
+      }
+
       const sanitizedWord = findWord.replace(/[&<>"']/g, "");
       const offset = (Number(page) - 1) * pageSize;
 
-      // Unified query with total count and pagination
+      // Optimized search query with performance improvements
       const searchQuery = `
         WITH RankedArticles AS (
           SELECT 
@@ -74,17 +90,21 @@ export const searchDatabaseOptions: RouteOptions = {
             ${cb1 ? 'KEY_TBL.RANK,' : ''}
             ROW_NUMBER() OVER (ORDER BY ${cb1 ? 'KEY_TBL.RANK DESC' : 'ar_datetime DESC'}) AS RowNum,
             COUNT(*) OVER() AS TotalCount
-          FROM and_cirec.cr_articles AS FT_TBL 
+          FROM and_cirec.cr_articles WITH (NOLOCK) 
           ${cb1 ? `
             INNER JOIN CONTAINSTABLE(and_cirec.cr_articles, (ar_title, ar_content), @keyword) AS KEY_TBL 
             ON FT_TBL.ar_id = KEY_TBL.[KEY]
+            OPTION (RECOMPILE)
           ` : 'WHERE ar_title LIKE @keyword OR ar_content LIKE @keyword'}
         )
-        SELECT ar_id, ar_title, ar_datetime, ar_content, ${cb1 ? 'RANK,' : ''} TotalCount
+        SELECT TOP (@pageSize) ar_id, ar_title, ar_datetime, ar_content, 
+               ${cb1 ? 'RANK,' : ''} TotalCount
         FROM RankedArticles
         WHERE RowNum BETWEEN @offset + 1 AND @offset + @pageSize
+        OPTION (MAXDOP 2)
       `;
 
+      // Execute query
       const articlesResult = await executeQuery(searchQuery, {
         keyword: cb1 ? `"${sanitizedWord}"` : `%${sanitizedWord}%`,
         offset,
@@ -93,7 +113,7 @@ export const searchDatabaseOptions: RouteOptions = {
 
       const totalArticles = articlesResult.recordset[0]?.TotalCount || 0;
 
-      // Check for suggested keywords
+      // Check for suggested keywords if no results
       let suggestedKeyword = null;
       if (totalArticles === 0) {
         const suggestedQuery = `
@@ -111,7 +131,7 @@ export const searchDatabaseOptions: RouteOptions = {
           suggestedKeyword = suggestedResult.recordset[0].sk_suggestedkey;
         }
 
-        // Insert the keyword for tracking if not exists
+        // Insert new keyword for tracking
         const insertQuery = `
           IF NOT EXISTS (
             SELECT 1 FROM and_cirec.cr_searchkeyword 
@@ -127,7 +147,7 @@ export const searchDatabaseOptions: RouteOptions = {
         await executeQuery(insertQuery, { keyword: sanitizedWord });
       }
 
-      // Prepare response
+      // Prepare response data
       const responseData = {
         success: totalArticles > 0,
         totalArticles,
@@ -140,13 +160,16 @@ export const searchDatabaseOptions: RouteOptions = {
         suggestedKeyword,
       };
 
-      // Always return a response
+      // Cache the result
+      searchResultsCache.set(cacheKey, responseData);
+
+      // Return response
       return h
         .response(responseData)
         .code(totalArticles > 0 ? 200 : 404);
 
     } catch (error) {
-      // Ensure error logging and response
+      // Error handling with detailed logging
       logger.error("search-route", `Search process failed: ${error}`);
       return h
         .response({
