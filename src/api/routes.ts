@@ -117,6 +117,15 @@ export const setupRoutes = (server: Server) => {
     options: chemicalLinksEndpoints.getChemicalLinksOptions,
   });
 
+
+  // Route registration
+server.route({
+  method: 'GET',
+  path: '/search/products-companies',
+  options: searchDatabaseEndpoints.getProductsAndCompaniesOptions
+});
+
+
   //User
   server.route({
     method: 'GET',

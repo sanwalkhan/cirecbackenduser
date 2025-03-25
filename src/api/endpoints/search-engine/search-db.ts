@@ -166,3 +166,75 @@ export const searchDatabaseOptions: RouteOptions = {
 };
 
 export default searchDatabaseOptions;
+
+
+
+
+
+export const getProductsAndCompaniesOptions: RouteOptions = {
+  description: "Fetch Displayed Products and Companies",
+  tags: ["api", "Search"],
+  validate: {
+    query: Joi.object({
+      limit: Joi.number().optional().default(50).min(1).max(200),
+      offset: Joi.number().optional().default(0).min(0)
+    })
+  },
+  handler: async (request, h) => {
+    try {
+      const { limit, offset } = request.query;
+
+      // Query similar to original SQL, fetching displayed products and companies
+      const result = await executeQuery(
+        `
+        SELECT 
+          pr_name AS name, 
+          'product' AS type 
+        FROM cr_rep_products 
+        WHERE pr_display = 1
+
+        UNION
+
+        SELECT 
+          comp_name AS name, 
+          'company' AS type 
+        FROM cr_rep_companies 
+        WHERE comp_display = 1
+        
+        ORDER BY name
+        OFFSET @offset ROWS
+        FETCH NEXT @limit ROWS ONLY
+        `,
+        {
+          limit,
+          offset
+        }
+      );
+
+      // Count total items for pagination
+      const countResult = await executeQuery(
+        `
+        SELECT 
+          (SELECT COUNT(*) FROM cr_rep_products WHERE pr_display = 1) +
+          (SELECT COUNT(*) FROM cr_rep_companies WHERE comp_display = 1) AS total_count
+        `
+      );
+
+      return h.response({
+        success: true,
+        data: result.recordset,
+        total: countResult.recordset[0].total_count,
+        limit,
+        offset
+      }).code(200);
+
+    } catch (error) {
+      logger.error("products-companies-fetch", `Fetch failed: ${error}`);
+      return h.response({
+        success: false,
+        message: "Failed to fetch products and companies"
+      }).code(500);
+    }
+  }
+};
+
