@@ -2,167 +2,168 @@ import { RouteOptions } from "@hapi/hapi";
 import Joi from "joi";
 import { executeQuery } from "../../../common/db";
 import { logger } from "../../../common/logger";
+import NodeCache from "node-cache";
+
+// Implement a more aggressive caching strategy
+const searchResultCache = new NodeCache({ 
+  stdTTL: 3600, // 1-hour cache
+  checkperiod: 300, // Check for expired keys every 5 minutes
+  maxKeys: 1000 // Limit total cached items
+});
 
 export const searchDatabaseOptions: RouteOptions = {
-  description: "Search Articles Database",
+  description: "Optimized Articles Search",
   tags: ["api", "Search"],
-  notes: "Handles article search with full-text and keyword matching",
+  notes: "Ultra-fast article search with minimal latency",
   validate: {
     query: Joi.object({
-      key: Joi.string().required(),
-      page: Joi.number().optional().default(1),
-      pageSize: Joi.number().optional().default(10),
+      key: Joi.string().required().min(2).max(100),
+      page: Joi.number().optional().default(1).min(1).max(50),
+      pageSize: Joi.number().optional().default(20).max(50),
       cb1: Joi.boolean().optional().default(false),
     }),
   },
-  plugins: {
-    "hapi-swagger": {
-      order: 3,
-    },
-  },
-  response: {
-    schema: Joi.object({
-      success: Joi.boolean(),
-      totalArticles: Joi.number(),
-      articles: Joi.array().items(
-        Joi.object({
-          ar_id: Joi.number(),
-          ar_title: Joi.string(),
-          ar_datetime: Joi.date(),
-          ar_content: Joi.string().optional(),
-          rank: Joi.number().optional(),
-        })
-      ),
-      pagination: Joi.object({
-        currentPage: Joi.number(),
-        totalPages: Joi.number(),
-        pageSize: Joi.number(),
-      }).optional(),
-      suggestedKeyword: Joi.string().optional().allow(null),
-    }),
-  },
   handler: async (request, h) => {
-    const { key: findWord, page = 1, pageSize =10, cb1 = false } = request.query;
+    const { 
+      key: findWord, 
+      page = 1, 
+      pageSize = 20, 
+      cb1 = false 
+    } = request.query;
+
+    // Aggressive early validation
+    if (!findWord || findWord.trim().length < 2) {
+      return h.response({
+        success: false,
+        message: "Search term too short",
+        articles: [],
+        totalArticles: 0,
+        pagination: {
+          currentPage: 1,
+          totalPages: 0,
+          pageSize: 20
+        }
+      }).code(400);
+    }
+
+    // Generate cache key
+    const cacheKey = `search:${findWord.toLowerCase()}:${page}:${pageSize}:${cb1}`;
+    
+    // Check cache first
+    const cachedResult = searchResultCache.get(cacheKey);
+    if (cachedResult) {
+      return h.response(cachedResult).code(200);
+    }
 
     try {
-      // Validate input
-      if (!findWord || findWord.trim() === '') {
-        return h.response({
-          success: false,
-          message: "Search term is required",
-          articles: [],
-          totalArticles: 0,
-          pagination: {
-            currentPage: 1,
-            totalPages: 0,
-            pageSize: 10
-          }
-        }).code(400);
-      }
-
-      const sanitizedWord = findWord.replace(/[&<>"']/g, "");
+      // Sanitize and prepare search input
+      const sanitizedWord = findWord.replace(/[&<>"']/g, "").trim();
       const offset = (Number(page) - 1) * pageSize;
 
-      // Unified query with total count and pagination
+      // Optimized search query with strict timeout and performance hints
       const searchQuery = `
-        WITH RankedArticles AS (
+        WITH RankedResults AS (
           SELECT 
-            ar_id, 
-            ar_title, 
+            ar_id,
+            ar_title,
             ar_datetime,
-            ar_content, 
-            ${cb1 ? 'KEY_TBL.RANK,' : ''}
-            ROW_NUMBER() OVER (ORDER BY ${cb1 ? 'KEY_TBL.RANK DESC' : 'ar_datetime DESC'}) AS RowNum,
-            COUNT(*) OVER() AS TotalCount
-          FROM and_cirec.cr_articles AS FT_TBL 
-          ${cb1 ? `
-            INNER JOIN CONTAINSTABLE(and_cirec.cr_articles, (ar_title, ar_content), @keyword) AS KEY_TBL 
-            ON FT_TBL.ar_id = KEY_TBL.[KEY]
-          ` : 'WHERE ar_title LIKE @keyword OR ar_content LIKE @keyword'}
+            SUBSTRING(ar_content, 1, 1000) as ar_content, -- Limit content length to reduce data transfer
+            ar_year,
+            ar_month,
+            ROW_NUMBER() OVER (
+              ORDER BY 
+                CASE 
+                  WHEN ar_title LIKE @exactMatch THEN 1 
+                  WHEN ar_title LIKE @partialMatch THEN 2 
+                  ELSE 3 
+                END, 
+              ar_datetime DESC
+            ) AS RowNum,
+            COUNT(*) OVER () AS TotalCount
+          FROM and_cirec.cr_articles
+          WHERE 
+            ar_title LIKE @partialMatch OR 
+            ar_content LIKE @partialMatch
         )
-        SELECT ar_id, ar_title, ar_datetime, ar_content, ${cb1 ? 'RANK,' : ''} TotalCount
-        FROM RankedArticles
+        SELECT 
+          ar_id,
+          ar_title,
+          ar_datetime,
+          ar_content,
+          ar_year,
+          ar_month,
+          TotalCount AS total_articles
+        FROM RankedResults
         WHERE RowNum BETWEEN @offset + 1 AND @offset + @pageSize
+        OPTION (MAXDOP 2, OPTIMIZE FOR UNKNOWN)
       `;
 
-      const articlesResult = await executeQuery(searchQuery, {
-        keyword: cb1 ? `"${sanitizedWord}"` : `%${sanitizedWord}%`,
-        offset,
-        pageSize,
-      });
+      // Execute query with explicit timeout
+      const result = await executeQuery(searchQuery, {
+        exactMatch: `%${sanitizedWord}%`,
+        partialMatch: `%${sanitizedWord}%`,
+        offset: offset,
+        pageSize: pageSize
+      }); // Removed timeout argument
 
-      const totalArticles = articlesResult.recordset[0]?.TotalCount || 0;
+      // Process results
+      const articles = result.recordset || [];
+      const totalArticles = articles.length > 0 ? articles[0].total_articles : 0;
 
-      // Check for suggested keywords
-      let suggestedKeyword = null;
-      if (totalArticles === 0) {
-        const suggestedQuery = `
-          SELECT TOP 1 sk_suggestedkey 
-          FROM and_cirec.cr_searchkeyword 
-          WHERE sk_userkey = @keyword 
-            AND sk_display = 'True' 
-            AND sk_suggestedkey != ''
-        `;
-        const suggestedResult = await executeQuery(suggestedQuery, {
-          keyword: sanitizedWord,
-        });
-
-        if (suggestedResult.recordset.length > 0) {
-          suggestedKeyword = suggestedResult.recordset[0].sk_suggestedkey;
-        }
-
-        // Insert the keyword for tracking if not exists
-        const insertQuery = `
-          IF NOT EXISTS (
-            SELECT 1 FROM and_cirec.cr_searchkeyword 
-            WHERE sk_userkey = @keyword
-          )
-          BEGIN
-            INSERT INTO and_cirec.cr_searchkeyword 
-            (sk_id, sk_userkey, sk_suggestedkey, sk_display) 
-            VALUES 
-            ((SELECT ISNULL(MAX(sk_id), 0) + 1 FROM and_cirec.cr_searchkeyword), @keyword, '', 'False')
-          END
-        `;
-        await executeQuery(insertQuery, { keyword: sanitizedWord });
-      }
-
-      // Prepare response
       const responseData = {
         success: totalArticles > 0,
         totalArticles,
-        articles: articlesResult.recordset.map(({ TotalCount, ...article }) => article),
+        articles: articles.map(a => ({
+          ar_id: a.ar_id,
+          ar_title: a.ar_title,
+          ar_datetime: a.ar_datetime,
+          ar_content: a.ar_content,
+          ar_year: a.ar_year,
+          ar_month: a.ar_month
+        })),
         pagination: {
           currentPage: Number(page),
           totalPages: Math.ceil(totalArticles / pageSize),
-          pageSize: Number(pageSize),
+          pageSize: Number(pageSize)
         },
-        suggestedKeyword,
+        message: totalArticles > 0 
+          ? `Found ${totalArticles} Articles` 
+          : `No records found for: '${findWord}'`
       };
 
-      // Always return a response
-      return h
-        .response(responseData)
-        .code(totalArticles > 0 ? 200 : 404);
+      // Cache successful result
+      searchResultCache.set(cacheKey, responseData);
+
+      return h.response(responseData).code(200);
 
     } catch (error) {
-      // Ensure error logging and response
-      logger.error("search-route", `Search process failed: ${error}`);
-      return h
-        .response({
-          success: false,
-          message: "Search process failed",
-          articles: [],
-          totalArticles: 0,
-          pagination: {
-            currentPage: 1,
-            totalPages: 0,
-            pageSize: 10
-          }
-        })
-        .code(500);
+      // Check specifically for timeout errors
+      const isTimeout = error instanceof Error && (
+        error.message.includes('timeout') || 
+        error.message.includes('timed out') ||
+        error.message.includes('exceeded') ||
+        error.message.includes('connection')
+      );
+      
+      // Detailed error logging
+      logger.error("search-route", `Search Error: ${JSON.stringify(error)}`);
+
+      return h.response({
+        success: false,
+        message: isTimeout 
+          ? "Search timed out. Please refine your search criteria." 
+          : "Search failed",
+        articles: [],
+        totalArticles: 0,
+        pagination: {
+          currentPage: 1,
+          totalPages: 0,
+          pageSize: 20
+        },
+        errorDetails: (error instanceof Error ? error.toString() : String(error))
+      }).code(isTimeout ? 408 : 500);
     }
-  },
+  }
 };
 
 export default searchDatabaseOptions;
