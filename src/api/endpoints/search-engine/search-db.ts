@@ -111,7 +111,7 @@ export const searchDatabaseOptions: RouteOptions = {
             search_rank,
             TotalCount
           FROM SearchResults
-          ORDER BY search_rank DESC
+          ORDER BY ar_datetime DESC, search_rank DESC
           OFFSET @offset ROWS 
           FETCH NEXT @pageSize ROWS ONLY;
         `
@@ -246,12 +246,6 @@ export const getProductsAndCompaniesOptions: RouteOptions = {
   handler: async (request, h) => {
     try {
       const { limit, offset, type } = request.query;
-
-      // Dynamic query based on type
-      const typeCondition = 
-        type === 'product' ? 'WHERE pr_display = 1' :
-        type === 'company' ? 'WHERE comp_display = 1' : 
-        '';
 
       const result = await executeQuery(
         `
