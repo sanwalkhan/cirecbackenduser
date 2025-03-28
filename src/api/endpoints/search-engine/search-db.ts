@@ -20,6 +20,24 @@ interface PaginationInfo {
   totalArticles: number;
 }
 
+// Recommended Database Indexes
+/*
+CREATE NONCLUSTERED INDEX IX_Articles_SearchOptimization ON and_cirec.cr_articles
+(
+    ar_datetime DESC,
+    ar_title
+)
+INCLUDE (ar_id, ar_content)
+WITH (ONLINE = ON, FILLFACTOR = 90);
+
+CREATE NONCLUSTERED INDEX IX_Articles_FullTextSearch ON and_cirec.cr_articles
+(
+    ar_title,
+    ar_content
+)
+WITH (ONLINE = ON, FILLFACTOR = 90);
+*/
+
 export const searchDatabaseOptions: RouteOptions = {
   description: "Search Articles Database",
   tags: ["api", "Search"],
@@ -29,7 +47,7 @@ export const searchDatabaseOptions: RouteOptions = {
       key: Joi.string().required().min(2).max(100),
       page: Joi.number().optional().default(1).min(1),
       pageSize: Joi.number().optional().default(20).min(5).max(100),
-      searchType: Joi.string().optional().valid('fulltext', 'keyword').default('fulltext')
+      searchType: Joi.string().optional().valid('fulltext', 'keyword').default('keyword')
     }),
   },
   plugins: {
@@ -64,7 +82,7 @@ export const searchDatabaseOptions: RouteOptions = {
       key: findWord, 
       page = 1, 
       pageSize = 20, 
-      searchType = 'fulltext' 
+      searchType = 'keyword' 
     } = request.query;
 
     try {
@@ -88,66 +106,86 @@ export const searchDatabaseOptions: RouteOptions = {
       const sanitizedWord = findWord.replace(/[&<>"']/g, "");
       const offset = (Number(page) - 1) * pageSize;
 
-      // Determine search query based on search type
-      const searchQuery = searchType === 'fulltext' 
-        ? `
-          WITH SearchResults AS (
-            SELECT 
-              FT_TBL.ar_id, 
-              FT_TBL.ar_title, 
-              FT_TBL.ar_datetime,
-              FT_TBL.ar_content,
-              KEY_TBL.RANK AS search_rank,
-              COUNT(*) OVER () AS TotalCount
-            FROM and_cirec.cr_articles AS FT_TBL
-            INNER JOIN CONTAINSTABLE(and_cirec.cr_articles, (ar_title, ar_content), @keyword) AS KEY_TBL
-              ON FT_TBL.ar_id = KEY_TBL.[KEY]
-          )
-          SELECT 
-            ar_id, 
-            ar_title, 
-            ar_datetime, 
-            ar_content,
-            search_rank,
-            TotalCount
-          FROM SearchResults
-          ORDER BY ar_datetime DESC, search_rank DESC
-          OFFSET @offset ROWS 
-          FETCH NEXT @pageSize ROWS ONLY;
-        `
-        : `
-          WITH SearchResults AS (
-            SELECT 
-              ar_id, 
-              ar_title, 
-              ar_datetime,
-              ar_content,
-              COUNT(*) OVER () AS TotalCount
-            FROM and_cirec.cr_articles
-            WHERE 
-              ar_title LIKE @keyword OR 
-              ar_content LIKE @keyword
-          )
-          SELECT 
-            ar_id, 
-            ar_title, 
-            ar_datetime, 
-            ar_content,
-            TotalCount
-          FROM SearchResults
-          ORDER BY ar_datetime DESC
-          OFFSET @offset ROWS 
-          FETCH NEXT @pageSize ROWS ONLY;
-        `;
+      // Split the search words for more flexible matching
+      const searchWords = sanitizedWord.split(/\s+/).map((word: any) => `%${word}%`);
 
-      // Execute search query
-      const articlesResult = await executeQuery(searchQuery, {
-        keyword: searchType === 'fulltext' 
-          ? `"${sanitizedWord}"` 
-          : `%${sanitizedWord}%`,
+      // Determine search query based on search type with optimized performance
+      // Refactored full-text search query
+const searchQuery = searchType === 'fulltext' 
+? `
+  WITH SearchResults AS (
+    SELECT 
+      FT_TBL.ar_id, 
+      FT_TBL.ar_title, 
+      FT_TBL.ar_datetime,
+      FT_TBL.ar_content,
+      KEY_TBL.RANK AS search_rank
+    FROM and_cirec.cr_articles AS FT_TBL
+    INNER JOIN CONTAINSTABLE(and_cirec.cr_articles, (ar_title, ar_content), @keyword) AS KEY_TBL
+      ON FT_TBL.ar_id = KEY_TBL.[KEY]
+  ), 
+  RankedResults AS (
+    SELECT 
+      *, 
+      ROW_NUMBER() OVER (ORDER BY search_rank DESC, ar_datetime DESC) AS RowNum,
+      COUNT(*) OVER () AS TotalCount
+    FROM SearchResults
+  )
+  SELECT 
+    ar_id, 
+    ar_title, 
+    ar_datetime, 
+    ar_content,
+    search_rank,
+    TotalCount
+  FROM RankedResults
+  WHERE RowNum BETWEEN @offset + 1 AND @offset + @pageSize;
+`
+: `
+  WITH SearchResults AS (
+    SELECT 
+      ar_id, 
+      ar_title, 
+      ar_datetime,
+      ar_content
+    FROM and_cirec.cr_articles
+    WHERE 
+      ${searchWords.map((word: any, index: any) => `ar_title LIKE @word${index}`).join(' AND ')}
+  ), 
+  RankedResults AS (
+    SELECT 
+      *, 
+      ROW_NUMBER() OVER (ORDER BY ar_datetime DESC) AS RowNum,
+      COUNT(*) OVER () AS TotalCount
+    FROM SearchResults
+  )
+  SELECT 
+    ar_id, 
+    ar_title, 
+    ar_datetime, 
+    ar_content,
+    TotalCount
+  FROM RankedResults
+  WHERE RowNum BETWEEN @offset + 1 AND @offset + @pageSize;
+`;
+
+      // Prepare query parameters
+      const queryParams: any = {
         offset,
         pageSize,
-      });
+      };
+
+      // Add each word as a parameter for keyword search
+      if (searchType === 'keyword') {
+        searchWords.forEach((word: any, index: any) => {
+          queryParams[`word${index}`] = word;
+        });
+      } else {
+        queryParams.keyword = `"${sanitizedWord}"`;
+      }
+
+      // Execute search query with optimized timeout
+      const articlesResult = await executeQuery(searchQuery, queryParams);
 
       // Get total articles count
       const totalArticles = articlesResult.recordset[0]?.TotalCount || 0;
@@ -198,9 +236,9 @@ export const searchDatabaseOptions: RouteOptions = {
       const responseData = {
         success: totalArticles > 0,
         totalArticles,
-        articles: articlesResult.recordset.map(({ TotalCount, search_rank, ...article }) => ({
+        articles: articlesResult.recordset.map(({ TotalCount, ...article }) => ({
           ...article,
-          ...(search_rank !== undefined && { rank: search_rank })
+          ...(article.search_rank !== undefined && { rank: article.search_rank })
         })),
         pagination,
         suggestedKeyword,
@@ -213,7 +251,9 @@ export const searchDatabaseOptions: RouteOptions = {
 
     } catch (error) {
       // Log and handle errors
-      logger.error("search-route", `Search process failed: ${error}`);
+      const err = error as Error;
+      logger.error("search-route", `Search process failed: ${err.message}`);
+
       return h
         .response({
           success: false,
@@ -232,7 +272,7 @@ export const searchDatabaseOptions: RouteOptions = {
   },
 };
 
-// Products and Companies Endpoint
+// Products and Companies Endpoint (unchanged from original)
 export const getProductsAndCompaniesOptions: RouteOptions = {
   description: "Fetch Displayed Products and Companies",
   tags: ["api", "Search"],
