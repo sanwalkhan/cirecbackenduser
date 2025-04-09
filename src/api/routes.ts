@@ -12,6 +12,14 @@ import * as statDbEndpoints from "./endpoints/statdb";
 import * as userEndpoints from "./endpoints/subscription";
 import * as upcomingEventsEndpoints from "./endpoints/upcoming-events";
 import * as userProfileEndpoints from "./endpoints/user";
+import { getProductCapacity2025ReportOptions } from "./endpoints/statdb/getProductCapacity2025Report";
+import { getProductCapacityReportOptions } from "./endpoints/statdb/getProductCapacityReport";
+import { getChartReportOptions } from "./endpoints/statdb/getChartReport";
+import { getFinancialReportOptions } from "./endpoints/statdb/getFinancialReport";
+import { getRussianDomesticReportOptions } from "./endpoints/statdb/getRussianDomesticReport";
+import { getRussianExportReportOptions } from "./endpoints/statdb/getRussianExportReport";
+import { getPolishChemicalReportOptions } from "./endpoints/statdb/getPolishChemicalReport";
+import { getOlyPolyReportOptions } from "./endpoints/statdb/getOlyPolyReport";
 
 export const setupRoutes = (server: Server) => {
   //Default Page
@@ -145,6 +153,57 @@ server.route({
     path: '/statdb/content',
     options: statDbEndpoints.getStatDbOptions,
   });
+// excel imporrt charts
+
+server.route({
+  method: "POST",
+  path: "/api/statdb/product-capacity-report",
+  options: getProductCapacityReportOptions
+});
+
+server.route({
+  method: "POST",
+  path: "/api/statdb/product-capacity-2025-report",
+  options: getProductCapacity2025ReportOptions
+});
+
+server.route({
+  method: "POST",
+  path: "/api/statdb/chart-report/{type}",
+  options: getChartReportOptions
+});
+
+server.route({
+  method: "POST",
+  path: "/api/statdb/financial-report/{type}",
+  options: getFinancialReportOptions
+});
+
+server.route({
+  method: "POST",
+  path: "/api/statdb/russian-domestic-report",
+  options: getRussianDomesticReportOptions
+});
+
+server.route({
+  method: "POST",
+  path: "/api/statdb/russian-export-report",
+  options: getRussianExportReportOptions
+});
+
+server.route({
+  method: "POST",
+  path: "/api/statdb/polish-chemical-report",
+  options: getPolishChemicalReportOptions
+});
+
+server.route({
+  method: "POST",
+  path: "/api/statdb/oly-poly-report",
+  options: getOlyPolyReportOptions
+});
+
+
 
   //statdb reports
   server.route({
